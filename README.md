@@ -19,31 +19,33 @@ move between platforms by exporting an encrypted `.sqvault` file.
 
 ## Install
 
-### From Accrescent (recommended)
+### From F-Droid (recommended)
 
-Accrescent is a privacy-respecting Android app store with stricter security
-requirements than Play Store. SeQured Identity is listed there once verified.
+[F-Droid](https://f-droid.org) is the canonical open-source Android app
+store. They build SeQured Identity from this source on their own server
+and sign with their own key, so the binary you install is verifiably
+the source you can read here.
 
-> _Listing pending. Link will go here when live._
+> _Listing in progress. Link will go here once it's live._
 
-### Sideload the APK
+### Sideload the APK (no app store required)
 
 1. Download the latest signed APK from the [Releases page][releases].
-2. Verify the SHA-256 against the value published next to it on the same page:
+2. Verify the SHA-256 against the value published next to the same release:
    ```sh
    shasum -a 256 sequred-identity-v0.1.0.apk
    ```
-3. Transfer to your phone and tap to install. On first install you'll need to
+3. Transfer to your phone and tap to install. First install needs you to
    allow "Install unknown apps" for whichever browser / file-manager opened
    the APK — Settings → Apps → \[that app\] → Install unknown apps.
 4. After install, revoke that permission again. It's a one-time grant.
 
 [releases]: https://github.com/TC4NS/sequred-identity-android/releases
 
-### F-Droid
+### Accrescent
 
-Not currently planned. (The iOS App Store version is a paid app; the Android
-version stays free + open source.)
+Submission deferred until Accrescent re-opens developer registration to the
+general public (currently invite-only and our request was declined).
 
 ---
 

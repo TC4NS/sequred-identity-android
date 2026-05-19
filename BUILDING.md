@@ -19,11 +19,19 @@
 
 ## Quick build (debug APK)
 
+**First time after cloning, you MUST run `./build-core.sh`** — the
+compiled Rust core `.so` files are not in git (per F-Droid's source-only
+policy). The build script cross-compiles them into
+`app/src/main/jniLibs/` where the Android build expects them.
+
 ```sh
 ./build-core.sh               # rebuild Rust core + regenerate Kotlin bindings
 ./gradlew :app:assembleDebug  # builds app/build/outputs/apk/debug/app-debug.apk
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+You only need to re-run `build-core.sh` when the sibling `core/` repo
+changes. Day-to-day Kotlin changes can use `:app:assembleDebug` directly.
 
 ## Release build
 

@@ -14,3 +14,4 @@ release/
 keystore.properties
 .kotlin/
 tools/
+app/src/main/jniLibs/

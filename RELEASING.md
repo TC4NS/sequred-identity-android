@@ -76,45 +76,21 @@ git checkout v0.1.1
 # unzip --extract --check.
 ```
 
-## Pushing to Accrescent
+## Distribution paths
 
-Accrescent **only** accepts `.apks` files (bundletool APK sets) — neither
-monolithic APKs nor raw AABs work. The `build-apks.sh` script handles the
-full pipeline (AAB build → bundletool sign):
+Two channels:
 
-```sh
-./build-apks.sh
-```
+1. **GitHub Releases (sideload)** — you build + sign the APK, upload to
+   the GitHub Releases page. Available the instant you push the tag.
+2. **F-Droid** — you submit a metadata YAML to fdroiddata; F-Droid's build
+   server rebuilds from this source and signs with their key. Released
+   when their reviewer + build complete (~1-2 weeks initial, faster after).
 
-Output: `app/build/outputs/apkset/release/sequred-identity-<version>.apks`
-plus a printed SHA-256.
+Both channels can coexist. F-Droid's APK will have a different signature
+than your GitHub APK (different signing keys), so users who switch
+channels mid-life need to uninstall + reinstall.
 
-Submission flow (per Accrescent docs):
-
-1. **Account.** Sign-up is currently allowlist-only; request access at
-   <https://console.accrescent.app> using your GitHub login.
-2. **App ID + domain.** Our app ID `co.sequred.identity` matches the
-   `sequred.co` domain Accrescent will ask you to verify. After uploading,
-   they'll email a verification code; add it as a DNS `TXT` record at host
-   `_accverify.sequred.co` (your registrar's DNS console).
-3. **New app.** On console.accrescent.app → "New app" → upload the
-   `.apks` file (≤ 1 GiB; ours is ~8 MB) + a 512×512 PNG icon.
-4. **App info.** The fields autofill from the bundle. Edit the description
-   to call out the CAMERA permission's narrow use (in-app QR scanner for
-   importing TOTP secrets) — CAMERA is on Accrescent's sensitive-permission
-   list and triggers manual review.
-5. **Privacy policy URL.** Point at `https://sequred.co/privacy` (see
-   `PRIVACY.md` in this repo for the canonical text).
-6. **Submit.** Accrescent assigns a reviewer; once approved, they
-   cryptographically sign the metadata and the app appears in the store
-   under "My apps".
-
-Subsequent versions: re-run `./build-apks.sh` after bumping
-`versionCode`/`versionName`, upload as a new version under the same app.
-
-## Bonus: GitHub Releases (for sideloaders)
-
-Sideloaders prefer plain APKs. After tagging:
+### Channel 1: GitHub Releases (sideload)
 
 ```sh
 ./gradlew :app:assembleRelease
@@ -122,8 +98,52 @@ Sideloaders prefer plain APKs. After tagging:
 shasum -a 256 app/build/outputs/apk/release/app-release.apk
 ```
 
-Upload that APK to the GitHub Release page with the SHA-256 in the body
-so sideloaders can verify before installing.
+Rename the APK to `sequred-identity-v<version>.apk`, upload to the
+GitHub Releases page along with the SHA-256 in the release body so
+sideloaders can verify before installing.
+
+### Channel 2: F-Droid
+
+The `metadata/co.sequred.identity.yml` file in this repo is the
+submission template. To get listed on the official F-Droid repository:
+
+1. Fork the [fdroiddata](https://gitlab.com/fdroid/fdroiddata) GitLab repo.
+2. Copy our `metadata/co.sequred.identity.yml` into your fork's
+   `metadata/co.sequred.identity.yml`.
+3. Verify the `CurrentVersion` and `CurrentVersionCode` match your latest
+   tagged release.
+4. Commit: `git commit -m "New app: co.sequred.identity"`.
+5. Push to your fork; open a merge request against fdroiddata.
+6. An F-Droid maintainer reviews it (typically 3–10 days for new apps).
+   Their build server validates that the metadata's `Builds:` block
+   successfully produces an APK from the source at the tagged commit.
+7. Once merged, the app appears in F-Droid's main repository within ~48h.
+
+For subsequent versions: F-Droid auto-detects new git tags matching
+`UpdateCheckMode` and rebuilds. You don't have to re-submit per release
+unless the build commands change.
+
+The `fastlane/metadata/android/en-US/` directory in this repo holds the
+description, short description, and screenshots F-Droid pulls into the
+listing. Update those as needed before tagging a release.
+
+### Reproducible builds (optional but encouraged)
+
+F-Droid prefers reproducible builds because then they can verify our
+signed APK byte-for-byte matches their rebuilt one. We've already laid
+the groundwork (pinned Gradle wrapper SHA, locked Cargo + Kotlin
+dependencies, deterministic R8 config). To prove reproducibility:
+
+```sh
+git checkout v0.1.1
+./build-core.sh
+./gradlew :app:assembleRelease
+# Diff the resulting APK against F-Droid's build using `apksigcopier` or
+# `diffoscope`. Goal: identical contents minus the V2 signing block.
+```
+
+If a reproducible build verifies, F-Droid can mark our APK as
+"verified reproducible" alongside their rebuilt version.
 
 ## Legacy: raw AAB build (rarely needed)
 
@@ -132,6 +152,6 @@ so sideloaders can verify before installing.
 # Output: app/build/outputs/bundle/release/app-release.aab
 ```
 
-AAB is the intermediate format `build-apks.sh` uses internally. You
-shouldn't need to upload the AAB anywhere — Accrescent wants the
-`.apks` file, not the AAB.
+We don't currently use the AAB anywhere — the sideload path is plain APK,
+the F-Droid path builds from source. Kept here in case a future store
+requires it.
