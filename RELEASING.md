@@ -78,13 +78,60 @@ git checkout v0.1.1
 
 ## Pushing to Accrescent
 
-Accrescent accepts AABs, not APKs, for new submissions. Build one with:
+Accrescent **only** accepts `.apks` files (bundletool APK sets) — neither
+monolithic APKs nor raw AABs work. The `build-apks.sh` script handles the
+full pipeline (AAB build → bundletool sign):
+
+```sh
+./build-apks.sh
+```
+
+Output: `app/build/outputs/apkset/release/sequred-identity-<version>.apks`
+plus a printed SHA-256.
+
+Submission flow (per Accrescent docs):
+
+1. **Account.** Sign-up is currently allowlist-only; request access at
+   <https://console.accrescent.app> using your GitHub login.
+2. **App ID + domain.** Our app ID `co.sequred.identity` matches the
+   `sequred.co` domain Accrescent will ask you to verify. After uploading,
+   they'll email a verification code; add it as a DNS `TXT` record at host
+   `_accverify.sequred.co` (your registrar's DNS console).
+3. **New app.** On console.accrescent.app → "New app" → upload the
+   `.apks` file (≤ 1 GiB; ours is ~8 MB) + a 512×512 PNG icon.
+4. **App info.** The fields autofill from the bundle. Edit the description
+   to call out the CAMERA permission's narrow use (in-app QR scanner for
+   importing TOTP secrets) — CAMERA is on Accrescent's sensitive-permission
+   list and triggers manual review.
+5. **Privacy policy URL.** Point at `https://sequred.co/privacy` (see
+   `PRIVACY.md` in this repo for the canonical text).
+6. **Submit.** Accrescent assigns a reviewer; once approved, they
+   cryptographically sign the metadata and the app appears in the store
+   under "My apps".
+
+Subsequent versions: re-run `./build-apks.sh` after bumping
+`versionCode`/`versionName`, upload as a new version under the same app.
+
+## Bonus: GitHub Releases (for sideloaders)
+
+Sideloaders prefer plain APKs. After tagging:
+
+```sh
+./gradlew :app:assembleRelease
+# app/build/outputs/apk/release/app-release.apk (signed)
+shasum -a 256 app/build/outputs/apk/release/app-release.apk
+```
+
+Upload that APK to the GitHub Release page with the SHA-256 in the body
+so sideloaders can verify before installing.
+
+## Legacy: raw AAB build (rarely needed)
 
 ```sh
 ./gradlew :app:bundleRelease
 # Output: app/build/outputs/bundle/release/app-release.aab
 ```
 
-Upload at <https://accrescent.app/console>. First submission requires the
-app ID (`com.sequred.identity`) to be claimed and basic metadata
-(description, screenshots, privacy policy) to be filled in.
+AAB is the intermediate format `build-apks.sh` uses internally. You
+shouldn't need to upload the AAB anywhere — Accrescent wants the
+`.apks` file, not the AAB.

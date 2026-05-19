@@ -20,11 +20,11 @@ fun signingProp(key: String, env: String): String? =
     keystoreProperties.getProperty(key) ?: System.getenv(env)
 
 android {
-    namespace = "com.sequred.identity"
+    namespace = "co.sequred.identity"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.sequred.identity"
+        applicationId = "co.sequred.identity"
         minSdk = 26          // Android 8.0 — Argon2id is fast enough on any 64-bit phone of this era.
         targetSdk = 35
         // versionCode scheme: MMmmpp  (M = major, m = minor, p = patch).

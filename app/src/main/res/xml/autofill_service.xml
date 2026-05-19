@@ -8,4 +8,4 @@
   our app's settings (where they can toggle / configure autofill behaviour).
 -->
 <autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:settingsActivity="com.sequred.identity.MainActivity" />
+    android:settingsActivity="co.sequred.identity.MainActivity" />

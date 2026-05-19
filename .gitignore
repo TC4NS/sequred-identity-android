@@ -13,3 +13,4 @@ release/
 *.keystore
 keystore.properties
 .kotlin/
+tools/

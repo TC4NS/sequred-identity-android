@@ -29,7 +29,7 @@
 # Keep the data classes used in our wire format so reflection-based serdes
 # (Apple JSON, base64, UUID custom serializers) keep working.
 -keep,allowobfuscation,allowshrinking class kotlinx.serialization.** { *; }
--keep,includedescriptorclasses class com.sequred.identity.data.** { *; }
+-keep,includedescriptorclasses class co.sequred.identity.data.** { *; }
 
 # ─── Coroutines ──────────────────────────────────────────────────────────────
 # Service loaders for the main-thread dispatcher resolution.
