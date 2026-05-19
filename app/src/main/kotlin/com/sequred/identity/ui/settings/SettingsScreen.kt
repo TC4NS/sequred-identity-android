@@ -30,7 +30,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(session: VaultSession, onOpenImportExport: () -> Unit = {}) {
+fun SettingsScreen(
+    session: VaultSession,
+    onOpenImportExport: () -> Unit = {},
+    onOpenLicenses: () -> Unit = {},
+) {
     var confirmReset by remember { mutableStateOf(false) }
     var idleMinutes by remember { mutableStateOf(session.inactivityTimeoutMinutes) }
     val ctx = LocalContext.current
@@ -173,6 +177,11 @@ fun SettingsScreen(session: VaultSession, onOpenImportExport: () -> Unit = {}) {
                     )
                 }
             }
+            OutlinedButton(
+                onClick = onOpenLicenses,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Brand.TextSecondary),
+            ) { Text("Open source licenses") }
 
             SectionLabel("Danger zone")
             OutlinedButton(

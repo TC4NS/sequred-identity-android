@@ -45,6 +45,7 @@ import androidx.lifecycle.lifecycleScope
 import com.sequred.identity.SeQuredApp
 import com.sequred.identity.crypto.CoreBridge
 import com.sequred.identity.crypto.PinVerifyResult
+import com.sequred.identity.data.AppleDate
 import com.sequred.identity.data.VaultEntry
 import com.sequred.identity.data.VaultSession
 import com.sequred.identity.data.VaultUuid
@@ -60,42 +61,49 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /**
- * Transparent overlay activity that handles the prompt-every-time flow:
+ * Transparent overlay activity that handles the prompt-every-time flow.
  *
- *   1. If the user is currently unlocked AND a specific entry was selected,
- *      we just need the master password (PIN is already in the session).
- *      Otherwise:
- *   2. Biometric prompt → decrypts the wrapped PIN from Keystore.
- *      If biometric isn't enrolled / fails, fall back to typed PIN.
- *   3. Master password text field. If no specific entry was passed, show
- *      a filtered list of entries and let the user pick.
- *   4. Derive the site password via CoreBridge for the chosen entry, build
- *      a Dataset and setResult so the service can complete the fill.
- *   5. Activity finishes immediately. Master + PIN never leave the local
- *      stack.
+ * Modes:
+ *   - FillExisting: pick an existing entry (or use the supplied one), derive
+ *     password, fill the form.
+ *   - CreateNew: collect site/username/email/master, derive a fresh password,
+ *     persist the new entry, then fill the form.
+ *
+ * Filling behaviour: the Dataset returned to the system carries values for
+ * every requested field — username field gets entry.username, email field
+ * gets entry.email (falling back to entry.username if no email), and every
+ * password field (including confirm-password) gets the same derived value.
  */
 @RequiresApi(Build.VERSION_CODES.O)
 class AutofillUnlockActivity : FragmentActivity() {
 
+    enum class Mode { FillExisting, CreateNew }
+
     private lateinit var app: SeQuredApp
+    private lateinit var mode: Mode
     private var hintEntryId: VaultUuid? = null
     private var usernameAfId: AutofillId? = null
-    private var passwordAfId: AutofillId? = null
+    private var emailAfId: AutofillId? = null
+    private var passwordAfIds: List<AutofillId> = emptyList()
     private var hintSite: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // FLAG_SECURE so a passer-by can't screenshot the master entry.
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         enableEdgeToEdge()
 
         app = applicationContext as SeQuredApp
+        mode = Mode.valueOf(intent.getStringExtra(EXTRA_MODE) ?: Mode.FillExisting.name)
         hintEntryId = intent.getStringExtra(EXTRA_ENTRY_ID)?.takeIf { it.isNotBlank() }
             ?.let { VaultUuid(UUID.fromString(it)) }
         usernameAfId = intent.getParcelableExtra(EXTRA_USERNAME_ID, AutofillId::class.java)
-        passwordAfId = intent.getParcelableExtra(EXTRA_PASSWORD_ID, AutofillId::class.java)
+        emailAfId = intent.getParcelableExtra(EXTRA_EMAIL_ID, AutofillId::class.java)
+        passwordAfIds = intent.getParcelableArrayListExtra(EXTRA_PASSWORD_IDS, AutofillId::class.java) ?: emptyList()
         hintSite = intent.getStringExtra(EXTRA_HINT_SITE)
-        android.util.Log.i(TAG, "onCreate: hintEntry=${hintEntryId?.value} u=$usernameAfId p=$passwordAfId site=$hintSite")
+        android.util.Log.i(
+            TAG,
+            "onCreate: mode=$mode hintEntry=${hintEntryId?.value} u=$usernameAfId e=$emailAfId pws=${passwordAfIds.size} site=$hintSite",
+        )
 
         setContent { SeQuredTheme { UnlockSheet() } }
     }
@@ -105,11 +113,10 @@ class AutofillUnlockActivity : FragmentActivity() {
     private fun UnlockSheet() {
         var step by remember { mutableStateOf<Step>(Step.Loading) }
 
-        // Resolve initial step based on session state + biometric availability.
         LaunchedEffect(Unit) {
             val live = app.session.state.value
             step = when {
-                live is VaultSession.State.Unlocked -> Step.NeedMaster(live.pin)
+                live is VaultSession.State.Unlocked -> nextStepAfterAuth(live.pin)
                 app.biometric.isEnrolled() && canUseBiometric(this@AutofillUnlockActivity) -> Step.AwaitingBiometric
                 else -> Step.NeedPin
             }
@@ -143,7 +150,7 @@ class AutofillUnlockActivity : FragmentActivity() {
                             Step.AwaitingBiometric -> BiometricCard(
                                 onUsePin = { step = Step.NeedPin },
                                 onCancel = ::cancelAndFinish,
-                                onAuthenticated = { pin -> step = Step.NeedMaster(pin) },
+                                onAuthenticated = { pin -> step = nextStepAfterAuth(pin) },
                                 onError = { msg -> step = Step.Error(msg) },
                             )
 
@@ -153,13 +160,29 @@ class AutofillUnlockActivity : FragmentActivity() {
                                         val res = withContext(Dispatchers.Default) { app.pinStore.verifyPin(pin) }
                                         step = if (res is PinVerifyResult.NoMatch)
                                             Step.Error("Wrong PIN. Open the app to retry.")
-                                        else Step.NeedMaster(pin)
+                                        else nextStepAfterAuth(pin)
                                     }
                                 },
                                 onCancel = ::cancelAndFinish,
                             )
 
-                            is Step.NeedMaster -> MasterCard(
+                            is Step.PickEntry -> EntryPickerCard(
+                                pin = s.pin,
+                                onPick = { entry -> step = Step.EnterMasterFill(s.pin, entry) },
+                                onCreateNew = { step = Step.CreateNew(s.pin) },
+                                onCancel = ::cancelAndFinish,
+                                onError = { msg -> step = Step.Error(msg) },
+                            )
+
+                            is Step.EnterMasterFill -> MasterFillCard(
+                                pin = s.pin,
+                                entry = s.entry,
+                                onCancel = ::cancelAndFinish,
+                                onComplete = { entry, derived -> completeAndFinish(entry, derived) },
+                                onError = { msg -> step = Step.Error(msg) },
+                            )
+
+                            is Step.CreateNew -> CreateNewCard(
                                 pin = s.pin,
                                 onCancel = ::cancelAndFinish,
                                 onComplete = { entry, derived -> completeAndFinish(entry, derived) },
@@ -183,7 +206,6 @@ class AutofillUnlockActivity : FragmentActivity() {
         onAuthenticated: (String) -> Unit,
         onError: (String) -> Unit,
     ) {
-        // Auto-launch the system prompt once.
         LaunchedEffect(Unit) {
             val cipher = runCatching { app.biometric.cipherForDecrypt() }.getOrNull()
             if (cipher == null) {
@@ -239,40 +261,46 @@ class AutofillUnlockActivity : FragmentActivity() {
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
-                SqPrimaryButton(
-                    label = "Unlock",
-                    onClick = { if (pin.isNotEmpty()) onSubmit(pin) },
-                    modifier = Modifier.weight(1f),
-                )
+                SqPrimaryButton(label = "Unlock", onClick = { if (pin.isNotEmpty()) onSubmit(pin) }, modifier = Modifier.weight(1f))
             }
         }
     }
 
+    /** Decide which step comes next once we have a verified PIN. */
+    private fun nextStepAfterAuth(pin: String): Step = when (mode) {
+        Mode.CreateNew -> Step.CreateNew(pin)
+        Mode.FillExisting -> if (hintEntryId != null) {
+            // Specific entry already chosen by the service. We'll resolve it
+            // inside MasterFillCard from the live payload. Wrap in a synthetic
+            // entry first; MasterFillCard re-resolves and shows a friendly
+            // error if the id doesn't actually exist.
+            Step.EnterMasterFill(pin, placeholderEntry())
+        } else {
+            Step.PickEntry(pin)
+        }
+    }
+
+    private fun placeholderEntry(): VaultEntry =
+        VaultEntry(id = hintEntryId ?: VaultUuid(UUID.randomUUID()), site = hintSite.orEmpty(), username = "")
+
+    /** Picker step: list of matching entries + a Create-new button at the
+     *  bottom. Master password is collected on the next step, not here. */
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun MasterCard(
+    private fun EntryPickerCard(
         pin: String,
+        onPick: (VaultEntry) -> Unit,
+        onCreateNew: () -> Unit,
         onCancel: () -> Unit,
-        onComplete: (VaultEntry, String) -> Unit,
         onError: (String) -> Unit,
     ) {
-        var master by remember { mutableStateOf("") }
-        var deriving by remember { mutableStateOf(false) }
-        var inlineError by remember { mutableStateOf<String?>(null) }
         var entries by remember { mutableStateOf<List<VaultEntry>>(emptyList()) }
-        var selected by remember { mutableStateOf<VaultEntry?>(null) }
-
-        // Resolve entries once we have the PIN. Use the live unlocked session
-        // when available; otherwise decrypt the on-disk vault on a worker.
         LaunchedEffect(pin) {
             val live = app.session.state.value as? VaultSession.State.Unlocked
             val payload = live?.payload ?: runCatching {
                 withContext(Dispatchers.IO) { app.vaultRepo.load(pin) }
             }.getOrNull()
-            if (payload == null) {
-                onError("Couldn't open vault — wrong PIN?")
-                return@LaunchedEffect
-            }
+            if (payload == null) { onError("Couldn't open vault — wrong PIN?"); return@LaunchedEffect }
             val all = payload.entries
             val matches = hintSite?.let { siteHint ->
                 AutofillMatcher.matchEntries(
@@ -284,25 +312,73 @@ class AutofillUnlockActivity : FragmentActivity() {
                 )
             }.orEmpty()
             entries = if (matches.isNotEmpty()) matches else all.sortedBy { it.site.lowercase() }
-            hintEntryId?.let { id -> selected = entries.firstOrNull { it.id == id } ?: all.firstOrNull { it.id == id } }
         }
-
-        val currentSelected = selected
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            HeaderRow("Master password", currentSelected?.site ?: hintSite)
-            if (currentSelected == null) {
-                Text("Pick the credential to fill:", color = Brand.TextSecondary, style = MaterialTheme.typography.bodySmall)
-                EntryPickList(entries, onPick = { selected = it })
-            } else {
-                Text(
-                    "${currentSelected.site} — ${currentSelected.username}",
-                    color = Brand.TextPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+            HeaderRow("Pick a credential", hintSite)
+            EntryPickList(entries, onPick = onPick)
+            OutlinedButton(
+                onClick = onCreateNew,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Brand.Capri),
+            ) { Text("＋ Create new credential") }
+            OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+        }
+    }
+
+    /**
+     * Master-password card for a specific already-picked entry. No picker
+     * here — just the password input + Fill button. If the entry came from
+     * a placeholder (hintEntryId path), we resolve it from the live payload.
+     */
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun MasterFillCard(
+        pin: String,
+        entry: VaultEntry,
+        onCancel: () -> Unit,
+        onComplete: (VaultEntry, String) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        var master by remember { mutableStateOf("") }
+        var deriving by remember { mutableStateOf(false) }
+        var inlineError by remember { mutableStateOf<String?>(null) }
+        var resolved by remember { mutableStateOf(entry.takeIf { it.username.isNotBlank() || !it.email.isNullOrBlank() }) }
+
+        // If `entry` is a placeholder (came from hintEntryId), look up the
+        // real one in the live payload.
+        LaunchedEffect(entry.id) {
+            if (resolved != null) return@LaunchedEffect
+            val live = app.session.state.value as? VaultSession.State.Unlocked
+            val payload = live?.payload ?: runCatching {
+                withContext(Dispatchers.IO) { app.vaultRepo.load(pin) }
+            }.getOrNull()
+            val match = payload?.entries?.firstOrNull { it.id == entry.id }
+            if (match == null) onError("That credential isn't in this vault anymore.")
+            else resolved = match
+        }
+        val current = resolved ?: return // shows nothing until LaunchedEffect resolves
+
+        val canSubmit = !deriving && master.isNotEmpty()
+        fun submit() {
+            if (!canSubmit) return
+            deriving = true
+            derive(pin, master, current) { result ->
+                deriving = false
+                result.fold(
+                    onSuccess = { derived -> onComplete(current, derived) },
+                    onFailure = { e -> inlineError = e.message ?: "Derivation failed." },
                 )
             }
+        }
 
-            val canSubmit = !deriving && master.isNotEmpty() && currentSelected != null
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            HeaderRow("Master password", current.site)
+            Text(
+                "Filling: ${current.displayId}",
+                color = Brand.TextPrimary,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
             OutlinedTextField(
                 value = master,
                 onValueChange = { master = it; inlineError = null },
@@ -310,18 +386,7 @@ class AutofillUnlockActivity : FragmentActivity() {
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = {
-                    if (canSubmit) {
-                        deriving = true
-                        derive(pin, master, currentSelected!!) { result ->
-                            deriving = false
-                            result.fold(
-                                onSuccess = { derived -> onComplete(currentSelected, derived) },
-                                onFailure = { e -> inlineError = e.message ?: "Derivation failed." },
-                            )
-                        }
-                    }
-                }),
+                keyboardActions = KeyboardActions(onDone = { submit() }),
                 colors = fieldColors(),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -331,14 +396,130 @@ class AutofillUnlockActivity : FragmentActivity() {
                 SqPrimaryButton(
                     label = if (deriving) "Deriving…" else "Fill",
                     enabled = canSubmit,
+                    onClick = ::submit,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+
+    /**
+     * Registration card. Captures site + username + email + master, derives a
+     * fresh password with default params (length 20, all charsets), persists
+     * the VaultEntry, then fills the form.
+     */
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun CreateNewCard(
+        pin: String,
+        onCancel: () -> Unit,
+        onComplete: (VaultEntry, String) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        var site by remember { mutableStateOf(hintSite.orEmpty()) }
+        var username by remember { mutableStateOf("") }
+        var email by remember { mutableStateOf("") }
+        var master by remember { mutableStateOf("") }
+        var working by remember { mutableStateOf(false) }
+        var inlineError by remember { mutableStateOf<String?>(null) }
+
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            HeaderRow("Create new credential", hintSite)
+            Text(
+                "We'll derive a fresh password using your master + this site + your username/email. " +
+                    "Nothing about the password is stored — only the metadata you enter below.",
+                color = Brand.TextSecondary, style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = site, onValueChange = { site = it; inlineError = null },
+                label = { Text("Site (e.g. example.com)", color = Brand.TextSecondary) },
+                singleLine = true,
+                colors = fieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = username, onValueChange = { username = it; inlineError = null },
+                label = { Text("Username (optional if email set)", color = Brand.TextSecondary) },
+                singleLine = true,
+                colors = fieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = email, onValueChange = { email = it; inlineError = null },
+                label = { Text("Email (optional if username set)", color = Brand.TextSecondary) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                colors = fieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = master, onValueChange = { master = it; inlineError = null },
+                label = { Text("Master password", color = Brand.TextSecondary) },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                colors = fieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            inlineError?.let { Text(it, color = Brand.Danger, style = MaterialTheme.typography.bodySmall) }
+
+            val identifier = username.trim().ifBlank { email.trim() }
+            val canSubmit = !working && site.isNotBlank() && master.isNotEmpty() && identifier.isNotBlank()
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                SqPrimaryButton(
+                    label = if (working) "Saving…" else "Create & Fill",
+                    enabled = canSubmit,
                     onClick = {
-                        deriving = true
-                        derive(pin, master, currentSelected!!) { result ->
-                            deriving = false
-                            result.fold(
-                                onSuccess = { derived -> onComplete(currentSelected, derived) },
-                                onFailure = { e -> inlineError = e.message ?: "Derivation failed." },
+                        working = true
+                        lifecycleScope.launch {
+                            val newEntry = VaultEntry(
+                                site = site.trim(),
+                                username = identifier,
+                                email = email.trim().takeIf { it.isNotEmpty() },
+                                passwordLength = 20,
+                                useUpper = true, useLower = true, useDigits = true, useSymbols = true,
                             )
+                            val derived = runCatching {
+                                withContext(Dispatchers.Default) {
+                                    val pw = CoreBridge.derivePassword(
+                                        master = master, site = newEntry.site, username = newEntry.username, pin = pin,
+                                        length = newEntry.passwordLength,
+                                        useUpper = newEntry.useUpper, useLower = newEntry.useLower,
+                                        useDigits = newEntry.useDigits, useSymbols = newEntry.useSymbols,
+                                        version = newEntry.version,
+                                    )
+                                    pw to CoreBridge.fingerprint(pw)
+                                }
+                            }.getOrElse { e ->
+                                working = false
+                                inlineError = e.message ?: "Derivation failed."
+                                return@launch
+                            }
+                            val (pw, hash) = derived
+                            val persisted = newEntry.copy(passwordHash = hash)
+                            // Persist on the session. If session isn't live
+                            // we open it transiently using the verified PIN.
+                            val live = app.session.state.value as? VaultSession.State.Unlocked
+                            if (live != null) {
+                                app.session.upsertEntry(persisted)
+                            } else {
+                                // No live session: load → mutate → save manually so
+                                // we don't have to spin up the full unlock flow.
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        val payload = app.vaultRepo.load(pin)
+                                        val merged = payload.copy(entries = payload.entries + persisted)
+                                        val salt = CoreBridge.randomBytes(32)
+                                        app.vaultRepo.save(merged, pin, salt)
+                                    }
+                                }.onFailure { e ->
+                                    working = false
+                                    inlineError = "Couldn't save: ${e.message}"
+                                    return@launch
+                                }
+                            }
+                            onComplete(persisted, pw)
                         }
                     },
                     modifier = Modifier.weight(1f),
@@ -396,7 +577,7 @@ class AutofillUnlockActivity : FragmentActivity() {
                 ) {
                     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                         Text(e.site, color = Brand.TextPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(e.username, color = Brand.TextSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(e.displayId, color = Brand.TextSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -438,7 +619,16 @@ class AutofillUnlockActivity : FragmentActivity() {
         data object Loading : Step()
         data object AwaitingBiometric : Step()
         data object NeedPin : Step()
-        data class NeedMaster(val pin: String) : Step()
+        /**
+         * Pick an entry from a filtered list. Reached when Mode.FillExisting
+         * but no specific hintEntryId was provided. The picker also offers
+         * a "+ Create new" button to bail into the registration flow.
+         */
+        data class PickEntry(val pin: String) : Step()
+        /** Master-pw entry for an already-chosen existing entry. */
+        data class EnterMasterFill(val pin: String, val entry: VaultEntry) : Step()
+        /** Registration card — creates + saves a new entry. */
+        data class CreateNew(val pin: String) : Step()
         data class Error(val message: String) : Step()
     }
 
@@ -449,57 +639,81 @@ class AutofillUnlockActivity : FragmentActivity() {
         finish()
     }
 
+    /**
+     * Build a Dataset that fills:
+     *   - username field with entry.username (fallback to entry.email if username blank)
+     *   - email field with entry.email (fallback to entry.username if email null)
+     *   - every password field with the same derived password
+     */
     private fun completeAndFinish(entry: VaultEntry, derivedPassword: String) {
-        val uId = usernameAfId
-        val pId = passwordAfId
-        android.util.Log.i(TAG, "completeAndFinish: entry=${entry.site} u=${uId} p=${pId} pwlen=${derivedPassword.length}")
-        if (uId == null && pId == null) {
-            android.util.Log.e(TAG, "Both AutofillIds null — extras failed to survive PendingIntent. Returning canceled.")
-            cancelAndFinish()
-            return
-        }
-        val captionView = RemoteViews(packageName, android.R.layout.simple_list_item_1).apply {
+        val caption = RemoteViews(packageName, android.R.layout.simple_list_item_1).apply {
             setTextViewText(android.R.id.text1, entry.site)
         }
-        val dataset = try {
-            Dataset.Builder().apply {
-                if (uId != null) setValue(uId, AutofillValue.forText(entry.username), captionView)
-                if (pId != null) setValue(pId, AutofillValue.forText(derivedPassword), captionView)
-            }.build()
-        } catch (t: Throwable) {
-            android.util.Log.e(TAG, "Dataset.Builder.build() failed", t)
-            cancelAndFinish()
-            return
+        val entryUsername = entry.username.takeIf { it.isNotBlank() }
+        val entryEmail = entry.email?.takeIf { it.isNotBlank() }
+        val hasBothFields = usernameAfId != null && emailAfId != null
+
+        // Fill policy:
+        //   - Form has BOTH fields (registration / dual-identifier login):
+        //     fill each strictly with its matching value. Don't cross-fill —
+        //     putting the username into the email box trips Rails-style
+        //     "must be a valid email" validators and confuses the user.
+        //   - Form has only ONE identifier field: fill it with the matching
+        //     value if present, else fall back to the other identifier so
+        //     the user gets *something* useful.
+        val (uVal, eVal) = if (hasBothFields) {
+            entryUsername to entryEmail
+        } else {
+            (entryUsername ?: entryEmail) to (entryEmail ?: entryUsername)
         }
-        val data = Intent().apply {
-            putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset)
-        }
-        android.util.Log.i(TAG, "Returning RESULT_OK with dataset")
+        android.util.Log.i(
+            TAG,
+            "completeAndFinish: site=${entry.site} bothFields=$hasBothFields " +
+                "entryU='${entryUsername?.take(3)}…' entryE='${entryEmail?.take(3)}…' " +
+                "fillU='${uVal?.take(3)}…' fillE='${eVal?.take(3)}…' " +
+                "fields: u=$usernameAfId e=$emailAfId pws=${passwordAfIds.size}",
+        )
+        val dataset = Dataset.Builder().apply {
+            val uId = usernameAfId
+            val eId = emailAfId
+            if (uId != null && !uVal.isNullOrBlank()) setValue(uId, AutofillValue.forText(uVal), caption)
+            if (eId != null && !eVal.isNullOrBlank()) setValue(eId, AutofillValue.forText(eVal), caption)
+            passwordAfIds.forEach { setValue(it, AutofillValue.forText(derivedPassword), caption) }
+        }.build()
+        val data = Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset)
         setResult(Activity.RESULT_OK, data)
         finish()
     }
 
     companion object {
         private const val TAG = "SqAutofillAct"
+        private const val EXTRA_MODE = "sq.autofill.mode"
         private const val EXTRA_ENTRY_ID = "sq.autofill.entry_id"
         private const val EXTRA_USERNAME_ID = "sq.autofill.username_id"
-        private const val EXTRA_PASSWORD_ID = "sq.autofill.password_id"
+        private const val EXTRA_EMAIL_ID = "sq.autofill.email_id"
+        private const val EXTRA_PASSWORD_IDS = "sq.autofill.password_ids"
         private const val EXTRA_HINT_SITE = "sq.autofill.hint_site"
 
+        /**
+         * Build the launch intent the autofill service wraps in a PendingIntent.
+         * Carries the AutofillIds we need for the post-auth fill plus the
+         * site / entry / mode hints.
+         */
         fun intent(
-            ctx: Context,
+            packageContext: Context,
+            mode: Mode,
             entryId: UUID?,
-            usernameId: AutofillId?,
-            passwordId: AutofillId?,
+            ctx: AutofillContext,
             hintSite: String? = null,
-        ): Intent = Intent(ctx, AutofillUnlockActivity::class.java).apply {
+        ): Intent = Intent(packageContext, AutofillUnlockActivity::class.java).apply {
+            putExtra(EXTRA_MODE, mode.name)
             entryId?.let { putExtra(EXTRA_ENTRY_ID, it.toString()) }
-            usernameId?.let { putExtra(EXTRA_USERNAME_ID, it) }
-            passwordId?.let { putExtra(EXTRA_PASSWORD_ID, it) }
+            ctx.usernameId?.let { putExtra(EXTRA_USERNAME_ID, it) }
+            ctx.emailId?.let { putExtra(EXTRA_EMAIL_ID, it) }
+            if (ctx.passwordIds.isNotEmpty()) {
+                putParcelableArrayListExtra(EXTRA_PASSWORD_IDS, ArrayList(ctx.passwordIds))
+            }
             hintSite?.let { putExtra(EXTRA_HINT_SITE, it) }
-            // Deliberately no FLAG_ACTIVITY_NEW_TASK — it forks the activity
-            // out of the requesting task, which breaks setResult delivery
-            // back through the autofill framework.
         }
     }
 }

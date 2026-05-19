@@ -52,8 +52,8 @@ instead: `SQ_STORE_FILE`, `SQ_STORE_PASSWORD`, `SQ_KEY_ALIAS`, `SQ_KEY_PASSWORD`
    git tag -a v0.1.1 -m "v0.1.1 — short summary"
    git push origin v0.1.1
    ```
-6. On Forgejo: go to
-   <http://localhost:3000/iconic4skin/sequred-identity-android/releases>,
+6. On GitHub: go to
+   <https://github.com/TC4NS/sequred-identity-android/releases>,
    click "Create new release", select the tag, upload the APK as a binary
    asset, and paste the SHA-256 + changelog into the description.
 

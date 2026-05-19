@@ -73,7 +73,8 @@ fun VaultListScreen(
         .filter {
             query.isBlank() ||
                 it.site.contains(query, ignoreCase = true) ||
-                it.username.contains(query, ignoreCase = true)
+                it.username.contains(query, ignoreCase = true) ||
+                (it.email?.contains(query, ignoreCase = true) == true)
         }
         .sortedBy { it.site.lowercase() }
     val recent = all.sortedByDescending { it.updatedAt.unixSeconds }.take(3)
@@ -325,7 +326,7 @@ private fun EntryCard(entry: VaultEntry, onClick: () -> Unit) {
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    entry.username,
+                    entry.displayId,
                     color = Brand.TextSecondary,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,

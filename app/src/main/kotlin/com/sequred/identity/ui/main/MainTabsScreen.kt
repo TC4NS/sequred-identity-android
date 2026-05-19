@@ -49,6 +49,7 @@ fun MainTabsScreen(
     onAddEntry: () -> Unit,
     onAddAuth: () -> Unit,
     onOpenImportExport: () -> Unit,
+    onOpenLicenses: () -> Unit,
 ) {
     var tab by remember { mutableStateOf(MainTab.Vault) }
 
@@ -102,7 +103,11 @@ fun MainTabsScreen(
                     onAdd = onAddAuth,
                 )
                 MainTab.Generator -> GeneratorScreen()
-                MainTab.Settings -> SettingsScreen(session = session, onOpenImportExport = onOpenImportExport)
+                MainTab.Settings -> SettingsScreen(
+                    session = session,
+                    onOpenImportExport = onOpenImportExport,
+                    onOpenLicenses = onOpenLicenses,
+                )
             }
         }
     }

@@ -102,7 +102,21 @@ enum class VaultCategory {
 data class VaultEntry(
     val id: VaultUuid = VaultUuid.random(),
     val site: String,
+    /**
+     * Primary identifier. Required to be non-blank only if `email` is blank.
+     * Always the derivation input — switching between username and email
+     * would change the derived password, so we commit to one identifier at
+     * create-time and let `email` carry the secondary value.
+     */
     val username: String,
+    /**
+     * Optional secondary identifier. Many sites accept either a username or
+     * an email at login; some require both at registration. Either field
+     * being non-blank satisfies the "have an identifier" requirement.
+     * Adding this as nullable is fully backward-compatible — older vaults
+     * deserialize with email = null.
+     */
+    val email: String? = null,
     val passwordLength: Int = 20,
     val useUpper: Boolean = true,
     val useLower: Boolean = true,
@@ -118,7 +132,10 @@ data class VaultEntry(
     val category: VaultCategory = VaultCategory.None,
     @Serializable(with = Base64Serializer::class)
     val passwordHash: ByteArray? = null,
-)
+) {
+    /** The string we present in lists / autofill chips when no preference. */
+    val displayId: String get() = username.ifBlank { email.orEmpty() }
+}
 
 @Serializable
 data class AuthenticatorEntry(

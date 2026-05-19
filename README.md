@@ -12,7 +12,7 @@ stores credential metadata + optional TOTP seeds — never the passwords
 themselves.
 
 The vault file is byte-for-byte interchangeable with the
-[iOS app](http://localhost:3000/iconic4skin/sequred-identity-ios), so you can
+[iOS app](https://github.com/TC4NS/sequred-identity-ios), so you can
 move between platforms by exporting an encrypted `.sqvault` file.
 
 ---
@@ -38,7 +38,7 @@ requirements than Play Store. SeQured Identity is listed there once verified.
    the APK — Settings → Apps → \[that app\] → Install unknown apps.
 4. After install, revoke that permission again. It's a one-time grant.
 
-[releases]: http://localhost:3000/iconic4skin/sequred-identity-android/releases
+[releases]: https://github.com/TC4NS/sequred-identity-android/releases
 
 ### F-Droid
 
@@ -74,16 +74,23 @@ version stays free + open source.)
 | Backup | `allowBackup=false` enforced over library overrides |
 
 Full audit notes live in the
-[Releases page changelogs](http://localhost:3000/iconic4skin/sequred-identity-android/releases).
+[Releases page changelogs](https://github.com/TC4NS/sequred-identity-android/releases).
 
 ---
 
 ## License
 
-GPL-3.0 — see [LICENSE](LICENSE).
+MPL-2.0 — see [LICENSE](LICENSE). Upstream attributions are in
+[NOTICES.md](NOTICES.md).
 
 The iOS App Store build is distributed under a separate proprietary license
-owned by the same copyright holder. Both ship from the same Rust core.
+owned by the same copyright holder. Both ship from the same MPL-2.0
+[Rust core](https://github.com/TC4NS/sequred-identity-core).
+
+MPL-2.0 is purpose-built for this split: modifications to MPL files must
+be released as MPL, but combining MPL files with other-licensed files in
+a larger work is allowed. Bitwarden's mobile clients, Firefox, and
+LibreOffice all use this pattern.
 
 ---
 
@@ -96,7 +103,7 @@ owned by the same copyright holder. Both ship from the same Rust core.
 | `app/src/main/kotlin/com/sequred/identity/crypto/` | Thin wrapper over UniFFI-generated Kotlin bindings |
 | `app/src/main/jniLibs/` | Pre-built Rust core `.so` files |
 | `app/proguard-rules.pro` | R8 keep rules for UniFFI / JNA / Tink / kotlinx-serialization |
-| `build-core.sh` | Cross-compiles the sibling [Rust core](http://localhost:3000/iconic4skin/sequred-identity-core), regenerates Kotlin bindings, copies `.so` into `jniLibs/` |
+| `build-core.sh` | Cross-compiles the sibling [Rust core](https://github.com/TC4NS/sequred-identity-core), regenerates Kotlin bindings, copies `.so` into `jniLibs/` |
 
 Building from source is documented in
 [BUILDING.md](BUILDING.md) — but for normal users, just sideload the APK.

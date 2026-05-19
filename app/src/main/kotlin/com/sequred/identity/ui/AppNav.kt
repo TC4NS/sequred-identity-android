@@ -17,6 +17,7 @@ import com.sequred.identity.data.VaultUuid
 import com.sequred.identity.ui.auth.AuthenticatorEditScreen
 import com.sequred.identity.ui.main.MainTabsScreen
 import com.sequred.identity.ui.settings.ImportExportScreen
+import com.sequred.identity.ui.settings.LicensesScreen
 import com.sequred.identity.ui.setup.PinSetupScreen
 import com.sequred.identity.ui.unlock.UnlockScreen
 import com.sequred.identity.ui.vault.EntryDetailScreen
@@ -70,10 +71,14 @@ fun AppNav(session: VaultSession) {
                 onAddEntry = { nav.navigate(Routes.entryEdit(null)) },
                 onAddAuth = { nav.navigate(Routes.authEdit(null)) },
                 onOpenImportExport = { nav.navigate(Routes.ImportExport) },
+                onOpenLicenses = { nav.navigate(Routes.Licenses) },
             )
         }
         composable(Routes.ImportExport) {
             ImportExportScreen(session = session, onBack = { nav.popBackStack() })
+        }
+        composable(Routes.Licenses) {
+            LicensesScreen(onBack = { nav.popBackStack() })
         }
         composable(Routes.ENTRY_DETAIL_TEMPLATE) { backStack ->
             val id = backStack.idArg() ?: run { nav.popBackStack(); return@composable }
@@ -105,6 +110,7 @@ object Routes {
     const val Unlock = "unlock"
     const val Main = "main"
     const val ImportExport = "import-export"
+    const val Licenses = "licenses"
     const val ARG_ID = "id"
     const val NEW_TOKEN = "new"
 

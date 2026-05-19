@@ -134,7 +134,8 @@ fun EntryDetailScreen(
         ) {
             Card(colors = CardDefaults.cardColors(containerColor = Brand.Surface)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    InfoRow("USERNAME", entry.username)
+                    if (entry.username.isNotBlank()) InfoRow("USERNAME", entry.username)
+                    entry.email?.takeIf { it.isNotBlank() }?.let { InfoRow("EMAIL", it) }
                     InfoRow(
                         if (entry.isPassphrase) "PASSPHRASE" else "PASSWORD",
                         if (entry.isPassphrase) "${entry.passphraseWordCount} words, '${entry.passphraseSeparator}'"

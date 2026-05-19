@@ -42,6 +42,7 @@ fun EntryEditScreen(
     // devices — without it, scanned values land on a torn-down composition.
     var site by rememberSaveable { mutableStateOf(existing?.site ?: "") }
     var username by rememberSaveable { mutableStateOf(existing?.username ?: "") }
+    var email by rememberSaveable { mutableStateOf(existing?.email ?: "") }
     var length by rememberSaveable { mutableStateOf((existing?.passwordLength ?: 20).toString()) }
     var useUpper by rememberSaveable { mutableStateOf(existing?.useUpper ?: true) }
     var useLower by rememberSaveable { mutableStateOf(existing?.useLower ?: true) }
@@ -71,15 +72,23 @@ fun EntryEditScreen(
                 },
                 actions = {
                     TextButton(
-                        enabled = site.isNotBlank() && username.isNotBlank(),
+                        enabled = site.isNotBlank() && (username.isNotBlank() || email.isNotBlank()),
                         colors = ButtonDefaults.textButtonColors(
                             contentColor = Brand.Capri,
                             disabledContentColor = Brand.TextSecondary.copy(alpha = 0.4f),
                         ),
                         onClick = {
-                            val proposed = (existing ?: VaultEntry(site = site, username = username)).copy(
+                            // Username is the derivation identifier. If the user only
+                            // typed an email, promote it into the username slot so the
+                            // derivation pipeline gets a non-empty identifier — and
+                            // store the same value as email so the autofill can put
+                            // it back in an email field on this site's login page.
+                            val finalUsername = username.trim().ifBlank { email.trim() }
+                            val finalEmail = email.trim().takeIf { it.isNotEmpty() }
+                            val proposed = (existing ?: VaultEntry(site = site, username = finalUsername)).copy(
                                 site = site.trim(),
-                                username = username.trim(),
+                                username = finalUsername,
+                                email = finalEmail,
                                 passwordLength = length.toIntOrNull()?.coerceIn(4, 128) ?: 20,
                                 useUpper = useUpper, useLower = useLower,
                                 useDigits = useDigits, useSymbols = useSymbols,
@@ -119,7 +128,13 @@ fun EntryEditScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             BrandTextField(value = site, onValueChange = { site = it }, label = "Site (e.g. github.com)")
-            BrandTextField(value = username, onValueChange = { username = it }, label = "Username or email")
+            BrandTextField(value = username, onValueChange = { username = it }, label = "Username (optional if email set)")
+            BrandTextField(value = email, onValueChange = { email = it }, label = "Email (optional if username set)", keyboardType = KeyboardType.Email)
+            Text(
+                "At least one of username or email is required — both can be filled for sites that ask for either.",
+                color = Brand.TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+            )
 
             Card(colors = CardDefaults.cardColors(containerColor = Brand.Surface.copy(alpha = 0.85f))) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
