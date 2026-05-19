@@ -11,9 +11,9 @@ device, with no servers involved. A small encrypted vault on the device
 stores credential metadata + optional TOTP seeds — never the passwords
 themselves.
 
-The vault file is byte-for-byte interchangeable with the
-[iOS app](https://github.com/TC4NS/sequred-identity-ios), so you can
-move between platforms by exporting an encrypted `.sqvault` file.
+The vault file is byte-for-byte interchangeable with the iOS App Store
+build, so you can move between platforms by exporting an encrypted
+`.sqvault` file.
 
 ---
 
