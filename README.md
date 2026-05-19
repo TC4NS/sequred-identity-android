@@ -1,75 +1,102 @@
 # SeQured Identity — Android
 
-A stateless deterministic password manager. Your passwords are *derived* from
-master + PIN + site + username on demand, not stored. A small encrypted vault
-holds credential metadata + optional TOTP seeds. Biometric unlock supported.
+> **Your passwords don't exist until you need them.**
 
-Cross-platform vault file format is interchangeable with the iOS app.
+A stateless deterministic password manager for Android.
 
-## Distribution
+Instead of storing your passwords, SeQured *derives* them on demand from four
+factors you provide: a master password, a 6+ digit PIN, the site name, and
+your username. The same four inputs always produce the same password, on any
+device, with no servers involved. A small encrypted vault on the device
+stores credential metadata + optional TOTP seeds — never the passwords
+themselves.
 
-- **Accrescent** (recommended): coming soon.
-- **Sideload APK**: download the signed APK from the Releases page.
-- **F-Droid**: not currently planned (the iOS App Store version is paid;
-  releasing on F-Droid as well would undercut that. Subject to change.)
+The vault file is byte-for-byte interchangeable with the
+[iOS app](http://localhost:3000/iconic4skin/sequred-identity-ios), so you can
+move between platforms by exporting an encrypted `.sqvault` file.
 
-## Build from source
+---
 
-Prerequisites:
+## Install
 
-- Android Studio (Iguana / Koala or newer)
-- Android NDK (auto-detected from `~/Library/Android/sdk/ndk/<latest>` or
-  set `ANDROID_NDK_HOME`)
-- Rust toolchain with `aarch64-linux-android` + `x86_64-linux-android`
-  targets, and `cargo-ndk`:
-  ```sh
-  rustup target add aarch64-linux-android x86_64-linux-android
-  cargo install cargo-ndk
-  ```
-- The sibling [`sequred-identity-core`](../sequred-identity-core/) repo
-  checked out at `../sequred-identity-core/` (the build script reads from
-  `../core/` relative to this repo).
+### From Accrescent (recommended)
 
-Build steps:
+Accrescent is a privacy-respecting Android app store with stricter security
+requirements than Play Store. SeQured Identity is listed there once verified.
 
-```sh
-# 1. Rebuild the Rust core + regenerate Kotlin bindings + copy .so to jniLibs.
-./build-core.sh
+> _Listing pending. Link will go here when live._
 
-# 2. Build the debug APK.
-./gradlew :app:assembleDebug
+### Sideload the APK
 
-# 3. Install on a connected device.
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+1. Download the latest signed APK from the [Releases page][releases].
+2. Verify the SHA-256 against the value published next to it on the same page:
+   ```sh
+   shasum -a 256 sequred-identity-v0.1.0.apk
+   ```
+3. Transfer to your phone and tap to install. On first install you'll need to
+   allow "Install unknown apps" for whichever browser / file-manager opened
+   the APK — Settings → Apps → \[that app\] → Install unknown apps.
+4. After install, revoke that permission again. It's a one-time grant.
 
-The first launch creates a vault under `/data/data/com.sequred.identity/files/vault.enc`.
+[releases]: http://localhost:3000/iconic4skin/sequred-identity-android/releases
 
-## Architecture
+### F-Droid
 
-| Layer | Where | Notes |
-|---|---|---|
-| UI | `app/src/main/kotlin/com/sequred/identity/ui/` | Jetpack Compose + Material 3 |
-| Session / state | `data/VaultSession.kt` | StateFlow of Locked / NeedsSetup / Unlocked |
-| Persistence | `data/VaultRepository.kt`, `data/PinStore.kt`, `data/BiometricStore.kt` | EncryptedSharedPreferences for PIN + biometric; atomic vault file w/ fsync |
-| Crypto FFI | `crypto/CoreBridge.kt` | Thin wrapper over UniFFI-generated Kotlin bindings |
-| Rust core | sibling [sequred-identity-core](../sequred-identity-core/) | Argon2id, AES-256-GCM, PBKDF2-SHA3-256, fingerprint, export envelope |
+Not currently planned. (The iOS App Store version is a paid app; the Android
+version stays free + open source.)
 
-## Security posture
+---
 
-- `FLAG_SECURE` globally → screenshots / Recents thumbnails / screen recording blocked.
-- `EncryptedSharedPreferences` for PIN hash + throttle counter + biometric ciphertext.
-- Argon2id 64 MiB / 3 iters for vault keys (auto-upgrades from older params on unlock).
-- Biometric Keystore key: `setUserAuthenticationRequired(true)` + `setUnlockedDeviceRequired(true)` (API 28+) + `setInvalidatedByBiometricEnrollment(true)`.
-- Clipboard auto-clears 60 s after a sensitive copy.
-- Vault writes fsync the file + parent dir before completing the rename.
-- Zero network calls (`usesCleartextTraffic=false` + a network_security_config that denies cleartext as defense in depth).
-- Auto-lock on background, configurable inactivity timeout, synchronous idle check on resume.
+## What you get
+
+- Stateless derivation — your passwords don't exist on disk anywhere
+- Encrypted on-device vault for credential metadata + TOTP seeds
+- Biometric unlock (Face Unlock / fingerprint, gated by Android Keystore)
+- Built-in TOTP authenticator (with QR scanner)
+- Import from Bitwarden / LastPass / 1Password / Chrome / KeePass / generic CSV
+- Encrypted export interchangeable with the iOS app
+- No network calls. No analytics. No tracking. No ads.
+
+---
+
+## Privacy + security posture
+
+| What | How |
+|---|---|
+| Screenshots blocked | `FLAG_SECURE` on every screen — won't appear in Recents thumbnails or screen recording |
+| Vault encryption | Argon2id (64 MiB / 3 iters) → AES-256-GCM. Per-vault stored params so older vaults stay decryptable |
+| PIN storage | Hashed via Argon2id, stored in `EncryptedSharedPreferences` (AES-256 GCM under an Android Keystore master key) |
+| Biometric unlock | Keystore key with `setUserAuthenticationRequired(true)` + `setInvalidatedByBiometricEnrollment(true)` + (API 28+) `setUnlockedDeviceRequired(true)` |
+| Clipboard auto-clear | Sensitive copies are flagged `IS_SENSITIVE`, wiped 60 s after copy unless the user has copied something else since |
+| Network policy | `usesCleartextTraffic=false`, `networkSecurityConfig` denies all cleartext. App makes zero network calls — verified by `grep` over the source |
+| Auto-lock | On background + configurable inactivity timeout (default 5 min). Synchronous lock on resume if expired — no UI flash window |
+| Memory wipe | KDF key buffers + decrypted plaintext held in `Zeroizing` in the Rust core; wiped on stack unwind |
+| Backup | `allowBackup=false` enforced over library overrides |
+
+Full audit notes live in the
+[Releases page changelogs](http://localhost:3000/iconic4skin/sequred-identity-android/releases).
+
+---
 
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE).
 
-The iOS App Store version of SeQured Identity is distributed under a separate
-proprietary license owned by the same copyright holder. Both ship from the
-same Rust core.
+The iOS App Store build is distributed under a separate proprietary license
+owned by the same copyright holder. Both ship from the same Rust core.
+
+---
+
+## Source layout (for the curious)
+
+| Where | What |
+|---|---|
+| `app/src/main/kotlin/com/sequred/identity/ui/` | Jetpack Compose UI |
+| `app/src/main/kotlin/com/sequred/identity/data/` | Session, vault repo, PIN + biometric stores, import/export |
+| `app/src/main/kotlin/com/sequred/identity/crypto/` | Thin wrapper over UniFFI-generated Kotlin bindings |
+| `app/src/main/jniLibs/` | Pre-built Rust core `.so` files |
+| `app/proguard-rules.pro` | R8 keep rules for UniFFI / JNA / Tink / kotlinx-serialization |
+| `build-core.sh` | Cross-compiles the sibling [Rust core](http://localhost:3000/iconic4skin/sequred-identity-core), regenerates Kotlin bindings, copies `.so` into `jniLibs/` |
+
+Building from source is documented in
+[BUILDING.md](BUILDING.md) — but for normal users, just sideload the APK.

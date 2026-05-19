@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Autofill service metadata. Surfaces in Settings → Passwords, passkeys
+  & accounts → Autofill service.
+
+  settingsActivity points at SettingsActivity inside our app so the user
+  can tap "Settings" from the system autofill picker and land directly in
+  our app's settings (where they can toggle / configure autofill behaviour).
+-->
+<autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.sequred.identity.MainActivity" />

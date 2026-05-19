@@ -41,5 +41,35 @@
             android:exported="false"
             android:theme="@style/Theme.SeQuredIdentity.PostSplash"
             tools:replace="android:screenOrientation,android:theme" />
+
+        <!-- Android Autofill Framework service. System binds to us when the
+             user picks SeQured Identity as their autofill provider. The
+             prompt-every-time policy lives in SeQuredAutofillService — every
+             fill request bounces through AutofillUnlockActivity for biometric
+             + master, so the master never sits in memory between fills. -->
+        <service
+            android:name=".autofill.SeQuredAutofillService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+
+        <!-- Transparent overlay that handles the biometric + master prompt
+             before each fill. NOTE: must NOT use launchMode=singleInstance /
+             singleTask or taskAffinity=""  — both break setResult delivery
+             back to the autofill framework's PendingIntent. The activity
+             must inherit the requesting task so EXTRA_AUTHENTICATION_RESULT
+             flows back through the system server. -->
+        <activity
+            android:name=".autofill.AutofillUnlockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.SeQuredIdentity.AutofillOverlay" />
     </application>
 </manifest>
