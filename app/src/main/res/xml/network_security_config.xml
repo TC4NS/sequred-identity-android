@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Defense in depth: the app makes zero network calls today. Pinning the base
+  config to no-cleartext means any future regression that tries to hit an
+  HTTP endpoint will fail loudly instead of silently leaking.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

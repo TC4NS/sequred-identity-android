@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ splash icons live in a 192dp canvas but only the inner ~108dp
+  is guaranteed unclipped (the outer ring is masked to a circle). Inset the
+  full-bleed sequred_icon.png down so the Q stays inside the safe area.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/sequred_icon"
+    android:inset="28dp" />
