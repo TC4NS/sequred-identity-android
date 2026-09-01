@@ -68,6 +68,10 @@ import java.util.UUID
  *     password, fill the form.
  *   - CreateNew: collect site/username/email/master, derive a fresh password,
  *     persist the new entry, then fill the form.
+ *   - SaveCaptured: the system save prompt was accepted for a manually typed
+ *     credential. We store the captured password verbatim on an "imported"
+ *     entry (flagged as potentially unsafe until upgraded to a derived
+ *     password). No form filling happens in this mode.
  *
  * Filling behaviour: the Dataset returned to the system carries values for
  * every requested field — username field gets entry.username, email field
@@ -77,7 +81,7 @@ import java.util.UUID
 @RequiresApi(Build.VERSION_CODES.O)
 class AutofillUnlockActivity : FragmentActivity() {
 
-    enum class Mode { FillExisting, CreateNew }
+    enum class Mode { FillExisting, CreateNew, SaveCaptured }
 
     private lateinit var app: SeQuredApp
     private lateinit var mode: Mode
@@ -86,6 +90,7 @@ class AutofillUnlockActivity : FragmentActivity() {
     private var emailAfId: AutofillId? = null
     private var passwordAfIds: List<AutofillId> = emptyList()
     private var hintSite: String? = null
+    private var captured: CapturedCredential? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -100,6 +105,13 @@ class AutofillUnlockActivity : FragmentActivity() {
         emailAfId = intent.getParcelableExtra(EXTRA_EMAIL_ID, AutofillId::class.java)
         passwordAfIds = intent.getParcelableArrayListExtra(EXTRA_PASSWORD_IDS, AutofillId::class.java) ?: emptyList()
         hintSite = intent.getStringExtra(EXTRA_HINT_SITE)
+        if (mode == Mode.SaveCaptured) {
+            captured = CapturedCredential(
+                username = intent.getStringExtra(EXTRA_CAP_USERNAME),
+                email = intent.getStringExtra(EXTRA_CAP_EMAIL),
+                password = intent.getStringExtra(EXTRA_CAP_PASSWORD),
+            )
+        }
         android.util.Log.i(
             TAG,
             "onCreate: mode=$mode hintEntry=${hintEntryId?.value} u=$usernameAfId e=$emailAfId pws=${passwordAfIds.size} site=$hintSite",
@@ -189,6 +201,16 @@ class AutofillUnlockActivity : FragmentActivity() {
                                 onError = { msg -> step = Step.Error(msg) },
                             )
 
+                            is Step.SaveCaptured -> SaveCapturedCard(
+                                pin = s.pin,
+                                onCancel = ::cancelAndFinish,
+                                onSaved = {
+                                    setResult(Activity.RESULT_OK)
+                                    finish()
+                                },
+                                onError = { msg -> step = Step.Error(msg) },
+                            )
+
                             is Step.Error -> ErrorCard(s.message, onDismiss = ::cancelAndFinish)
                         }
                     }
@@ -269,6 +291,7 @@ class AutofillUnlockActivity : FragmentActivity() {
     /** Decide which step comes next once we have a verified PIN. */
     private fun nextStepAfterAuth(pin: String): Step = when (mode) {
         Mode.CreateNew -> Step.CreateNew(pin)
+        Mode.SaveCaptured -> Step.SaveCaptured(pin)
         Mode.FillExisting -> if (hintEntryId != null) {
             // Specific entry already chosen by the service. We'll resolve it
             // inside MasterFillCard from the live payload. Wrap in a synthetic
@@ -357,6 +380,14 @@ class AutofillUnlockActivity : FragmentActivity() {
             else resolved = match
         }
         val current = resolved ?: return // shows nothing until LaunchedEffect resolves
+
+        // Imported entries carry their password verbatim — no derivation
+        // recipe, so the master prompt would be meaningless. Fill directly
+        // (still gated by the PIN/biometric auth that got us here).
+        current.storedPassword?.let { stored ->
+            LaunchedEffect(current.id) { onComplete(current, stored) }
+            return
+        }
 
         val canSubmit = !deriving && master.isNotEmpty()
         fun submit() {
@@ -528,6 +559,151 @@ class AutofillUnlockActivity : FragmentActivity() {
         }
     }
 
+    /**
+     * Save-prompt card. The captured password is stored verbatim on an
+     * imported entry — no master involved, so we make the trade-off explicit
+     * and flag the entry until the user upgrades it in the app.
+     */
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun SaveCapturedCard(
+        pin: String,
+        onCancel: () -> Unit,
+        onSaved: () -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        val cap = captured
+        if (cap?.password.isNullOrEmpty()) {
+            LaunchedEffect(Unit) { onError("Nothing to save — no password was captured.") }
+            return
+        }
+        var site by remember { mutableStateOf(hintSite.orEmpty()) }
+        var username by remember { mutableStateOf(cap?.username.orEmpty()) }
+        var email by remember { mutableStateOf(cap?.email.orEmpty()) }
+        var working by remember { mutableStateOf(false) }
+        var inlineError by remember { mutableStateOf<String?>(null) }
+        val password = cap?.password.orEmpty()
+
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            HeaderRow("Save to SeQured Identity", hintSite)
+            Text(
+                "This password wasn't generated by SeQured. It will be saved " +
+                    "as an imported credential and flagged until you upgrade " +
+                    "it to a generated password in the app.",
+                color = Brand.TextSecondary, style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = site, onValueChange = { site = it; inlineError = null },
+                label = { Text("Site", color = Brand.TextSecondary) },
+                singleLine = true,
+                colors = fieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = username, onValueChange = { username = it; inlineError = null },
+                label = { Text("Username (optional if email set)", color = Brand.TextSecondary) },
+                singleLine = true,
+                colors = fieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = email, onValueChange = { email = it; inlineError = null },
+                label = { Text("Email (optional if username set)", color = Brand.TextSecondary) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                colors = fieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = password, onValueChange = {},
+                readOnly = true,
+                label = { Text("Captured password", color = Brand.TextSecondary) },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                colors = fieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            inlineError?.let { Text(it, color = Brand.Danger, style = MaterialTheme.typography.bodySmall) }
+
+            val identifier = username.trim().ifBlank { email.trim() }
+            val canSubmit = !working && site.isNotBlank() && identifier.isNotBlank()
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                SqPrimaryButton(
+                    label = if (working) "Saving…" else "Save",
+                    enabled = canSubmit,
+                    onClick = {
+                        working = true
+                        lifecycleScope.launch {
+                            val result = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    persistCaptured(
+                                        pin = pin,
+                                        site = site.trim(),
+                                        username = identifier,
+                                        email = email.trim().takeIf { it.isNotEmpty() },
+                                        password = password,
+                                    )
+                                }
+                            }
+                            result.fold(
+                                onSuccess = { onSaved() },
+                                onFailure = { e ->
+                                    working = false
+                                    inlineError = "Couldn't save: ${e.message}"
+                                },
+                            )
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+
+    /**
+     * Upsert the captured credential. An existing entry for the same site +
+     * identifier gets its storedPassword replaced (the user rotated the
+     * password outside the app); otherwise a fresh imported entry is created.
+     */
+    private suspend fun persistCaptured(
+        pin: String,
+        site: String,
+        username: String,
+        email: String?,
+        password: String,
+    ) {
+        val live = app.session.state.value as? VaultSession.State.Unlocked
+        val payload = live?.payload ?: app.vaultRepo.load(pin)
+        val existing = payload.entries.firstOrNull {
+            it.site.equals(site, ignoreCase = true) &&
+                it.displayId.equals(username, ignoreCase = true)
+        }
+        val entry = existing?.copy(
+            storedPassword = password,
+            email = email ?: existing.email,
+            updatedAt = AppleDate.now(),
+        ) ?: VaultEntry(
+            site = site,
+            username = username,
+            email = email,
+            storedPassword = password,
+        )
+        if (live != null) {
+            app.session.upsertEntry(entry)
+        } else {
+            val merged = payload.copy(
+                entries = if (existing != null) {
+                    payload.entries.map { if (it.id == entry.id) entry else it }
+                } else {
+                    payload.entries + entry
+                }
+            )
+            val salt = CoreBridge.randomBytes(32)
+            app.vaultRepo.save(merged, pin, salt)
+        }
+    }
+
     private fun derive(pin: String, master: String, entry: VaultEntry, cb: (Result<String>) -> Unit) {
         lifecycleScope.launch {
             val result = runCatching {
@@ -629,6 +805,8 @@ class AutofillUnlockActivity : FragmentActivity() {
         data class EnterMasterFill(val pin: String, val entry: VaultEntry) : Step()
         /** Registration card — creates + saves a new entry. */
         data class CreateNew(val pin: String) : Step()
+        /** Save-prompt card — stores a captured (typed) credential verbatim. */
+        data class SaveCaptured(val pin: String) : Step()
         data class Error(val message: String) : Step()
     }
 
@@ -693,6 +871,9 @@ class AutofillUnlockActivity : FragmentActivity() {
         private const val EXTRA_EMAIL_ID = "sq.autofill.email_id"
         private const val EXTRA_PASSWORD_IDS = "sq.autofill.password_ids"
         private const val EXTRA_HINT_SITE = "sq.autofill.hint_site"
+        private const val EXTRA_CAP_USERNAME = "sq.autofill.cap_username"
+        private const val EXTRA_CAP_EMAIL = "sq.autofill.cap_email"
+        private const val EXTRA_CAP_PASSWORD = "sq.autofill.cap_password"
 
         /**
          * Build the launch intent the autofill service wraps in a PendingIntent.
@@ -714,6 +895,19 @@ class AutofillUnlockActivity : FragmentActivity() {
                 putParcelableArrayListExtra(EXTRA_PASSWORD_IDS, ArrayList(ctx.passwordIds))
             }
             hintSite?.let { putExtra(EXTRA_HINT_SITE, it) }
+        }
+
+        /** Launch intent for the save-prompt flow (Mode.SaveCaptured). */
+        fun saveIntent(
+            packageContext: Context,
+            site: String,
+            captured: CapturedCredential,
+        ): Intent = Intent(packageContext, AutofillUnlockActivity::class.java).apply {
+            putExtra(EXTRA_MODE, Mode.SaveCaptured.name)
+            putExtra(EXTRA_HINT_SITE, site)
+            captured.username?.let { putExtra(EXTRA_CAP_USERNAME, it) }
+            captured.email?.let { putExtra(EXTRA_CAP_EMAIL, it) }
+            captured.password?.let { putExtra(EXTRA_CAP_PASSWORD, it) }
         }
     }
 }

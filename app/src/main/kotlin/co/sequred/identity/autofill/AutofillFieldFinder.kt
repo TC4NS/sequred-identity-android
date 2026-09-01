@@ -38,6 +38,13 @@ data class AutofillContext(
     val firstPasswordId: AutofillId? get() = passwordIds.firstOrNull()
 }
 
+/** What the user typed into the form, as captured at save time. */
+data class CapturedCredential(
+    val username: String? = null,
+    val email: String? = null,
+    val password: String? = null,
+)
+
 @RequiresApi(Build.VERSION_CODES.O)
 object AutofillFieldFinder {
 
@@ -87,6 +94,32 @@ object AutofillFieldFinder {
             hasNewPasswordHint = newPasswordHint,
             webDomain = webDomain,
         )
+    }
+
+    /**
+     * Pull the text the user actually typed out of a (post-commit) structure,
+     * keyed by the field classification in [ctx]. Used by the save flow —
+     * unlike a FillRequest, the SaveRequest structure carries filled values.
+     */
+    fun capture(structure: AssistStructure, ctx: AutofillContext): CapturedCredential {
+        var username: String? = null
+        var email: String? = null
+        var password: String? = null
+        for (i in 0 until structure.windowNodeCount) {
+            walk(structure.getWindowNodeAt(i).rootViewNode) { node ->
+                val id = node.autofillId ?: return@walk
+                val text = node.autofillValue?.takeIf { it.isText }?.textValue?.toString()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: node.text?.toString()?.takeIf { it.isNotBlank() }
+                    ?: return@walk
+                when {
+                    id == ctx.usernameId -> if (username == null) username = text
+                    id == ctx.emailId -> if (email == null) email = text
+                    id in ctx.passwordIds -> if (password == null) password = text
+                }
+            }
+        }
+        return CapturedCredential(username = username, email = email, password = password)
     }
 
     private fun walk(node: AssistStructure.ViewNode, visit: (AssistStructure.ViewNode) -> Unit) {

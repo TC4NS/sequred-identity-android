@@ -180,8 +180,36 @@ class SeQuredAutofillService : AutofillService() {
     }
 
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-        // No-op for now. Capturing raw submitted passwords from other apps
-        // doesn't fit the stateless-derivation model.
-        callback.onSuccess()
+        // A manually typed password has no derivation recipe, so it can't
+        // become a normal derived entry. Instead we store it verbatim as an
+        // "imported" credential — flagged in the UI as potentially unsafe
+        // until the user upgrades it to a derived password.
+        val structure = request.fillContexts.lastOrNull()?.structure
+            ?: return callback.onSuccess()
+        val ctx = AutofillFieldFinder.find(structure)
+        val captured = AutofillFieldFinder.capture(structure, ctx)
+        // Launching a save activity from here needs onSuccess(IntentSender),
+        // which is API 28+. Below that we silently ack, as before.
+        if (captured.password.isNullOrBlank() || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return callback.onSuccess()
+        }
+        val requestingPackage = structure.activityComponent?.packageName
+            ?: applicationContext.packageName
+        val site = ctx.webDomain
+            ?.takeIf { it.isNotBlank() }
+            ?.let { AutofillMatcher.stripWww(it).lowercase() }
+            ?: requestingPackage
+        android.util.Log.i(
+            "SqAutofillSvc",
+            "onSaveRequest: pkg=$requestingPackage site=$site " +
+                "u=${captured.username != null} e=${captured.email != null}",
+        )
+        val pi = PendingIntent.getActivity(
+            applicationContext,
+            ("save:$site").hashCode(),
+            AutofillUnlockActivity.saveIntent(applicationContext, site, captured),
+            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        callback.onSuccess(pi.intentSender)
     }
 }

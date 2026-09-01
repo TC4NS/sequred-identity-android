@@ -132,9 +132,20 @@ data class VaultEntry(
     val category: VaultCategory = VaultCategory.None,
     @Serializable(with = Base64Serializer::class)
     val passwordHash: ByteArray? = null,
+    /**
+     * Password captured verbatim from an autofill save (not derived from the
+     * master). Present only on imported entries; the UI flags these as
+     * potentially unsafe until the user upgrades to a derived password, at
+     * which point this reverts to null.
+     */
+    val storedPassword: String? = null,
 ) {
     /** The string we present in lists / autofill chips when no preference. */
     val displayId: String get() = username.ifBlank { email.orEmpty() }
+
+    /** True for credentials captured from outside the app — password is
+     *  stored, not derived, and the entry is flagged until upgraded. */
+    val isImported: Boolean get() = storedPassword != null
 }
 
 @Serializable

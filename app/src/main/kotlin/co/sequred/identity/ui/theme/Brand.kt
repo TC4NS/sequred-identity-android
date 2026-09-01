@@ -45,6 +45,8 @@ object Brand {
 
     val Success = Color(0xFF00E676)
     val Danger = Color(0xFFFF4D4F)
+    /** Amber — imported / potentially-unsafe credential flag. */
+    val Warning = Color(0xFFFFB300)
 
     /** Capri → Congo top-leading → bottom-trailing — used on primary CTAs. */
     val Gradient = Brush.linearGradient(colors = listOf(Capri, Congo))

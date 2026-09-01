@@ -332,6 +332,18 @@ private fun EntryCard(entry: VaultEntry, onClick: () -> Unit) {
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
+            if (entry.isImported) {
+                AssistChip(
+                    onClick = onClick,
+                    label = { Text("Imported") },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = Brand.Warning.copy(alpha = 0.15f),
+                        labelColor = Brand.Warning,
+                    ),
+                    border = null,
+                )
+                Spacer(Modifier.width(6.dp))
+            }
             if (entry.category != VaultCategory.None) {
                 AssistChip(
                     onClick = onClick,
