@@ -30,8 +30,8 @@ android {
         // versionCode scheme: MMmmpp  (M = major, m = minor, p = patch).
         // 0.1.0 = 10000, 0.1.1 = 10001, 0.2.0 = 10200, 1.0.0 = 100000.
         // Lets us ship hotfixes between minor releases without colliding.
-        versionCode = 10000
-        versionName = "0.1.0"
+        versionCode = 10200
+        versionName = "0.2.0"
 
         // Only ship the 64-bit ABIs we cross-compile the Rust core for. Play
         // Store has required 64-bit since 2019, and bundling armv7 means
