@@ -1,1 +1,0 @@
-Stateless password manager — your passwords don't exist until you need them.

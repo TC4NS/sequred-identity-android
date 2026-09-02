@@ -20,8 +20,8 @@
 ## Quick build (debug APK)
 
 **First time after cloning, you MUST run `./build-core.sh`** — the
-compiled Rust core `.so` files are not in git (per F-Droid's source-only
-policy). The build script cross-compiles them into
+compiled Rust core `.so` files are not in git (they're build artifacts,
+not source). The build script cross-compiles them into
 `app/src/main/jniLibs/` where the Android build expects them.
 
 ```sh
@@ -40,7 +40,7 @@ generation, R8, the manual GitHub Release upload).
 
 ## Reproducibility
 
-This is set up to produce reproducible builds for F-Droid-style auditing:
+This is set up to produce reproducible builds for independent auditing:
 
 - `gradle/wrapper/gradle-wrapper.properties` pins
   `distributionSha256Sum=31c55713…`

@@ -19,15 +19,6 @@ build, so you can move between platforms by exporting an encrypted
 
 ## Install
 
-### From F-Droid (recommended)
-
-[F-Droid](https://f-droid.org) is the canonical open-source Android app
-store. They build SeQured Identity from this source on their own server
-and sign with their own key, so the binary you install is verifiably
-the source you can read here.
-
-> _Listing in progress. Link will go here once it's live._
-
 ### Sideload the APK (no app store required)
 
 1. Download the latest signed APK from the [Releases page][releases].
