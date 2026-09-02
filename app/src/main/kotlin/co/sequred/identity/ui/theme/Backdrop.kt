@@ -10,7 +10,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
@@ -61,15 +60,6 @@ fun SeQuredBackdrop(
                 ),
             ),
     ) {
-        Image(
-            painter = painterResource(R.drawable.sequred_icon),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            alpha = 0.04f,
-            modifier = Modifier
-                .fillMaxSize()
-                .alpha(0.5f),
-        )
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             // Real ghost mark — large, centred, very faint.
             Image(
