@@ -33,11 +33,6 @@ build, so you can move between platforms by exporting an encrypted
 
 [releases]: https://github.com/TC4NS/sequred-identity-android/releases
 
-### Accrescent
-
-Submission deferred until Accrescent re-opens developer registration to the
-general public (currently invite-only and our request was declined).
-
 ---
 
 ## What you get

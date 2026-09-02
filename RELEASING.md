@@ -2,9 +2,10 @@
 
 ## One-time setup — generate the release keystore
 
-If you lose this keystore, you cannot ship updates to the same app on
-Accrescent (or any other store). Back it up to a safe place (encrypted USB,
-password manager attachment, etc.) and never commit it to git.
+If you lose this keystore, existing installs can never update to a new
+release — users would have to uninstall and start over. Back it up to a
+safe place (encrypted USB, password manager attachment, etc.) and never
+commit it to git.
 
 ```sh
 cd android
